@@ -1,0 +1,63 @@
+0) Open your project
+
+Open VS Code → File → Open Folder… → select your streamlit_app folder.
+
+1) Open the built-in terminal (you’ll run everything here)
+
+VS Code top menu → Terminal → New Terminal
+You should see a terminal at the bottom, already in your project folder.
+
+2) Activate your virtual environment
+.\venv\Scripts\Activate
+
+
+You’ll know it worked if your prompt starts with (venv).
+
+If the terminal ever says “python not found,” just make sure the venv is activated, or use the full path like you did before.
+
+3) Start the app
+streamlit run app.py
+
+
+A browser tab opens at http://localhost:8501.
+
+Keep this terminal running while you develop.
+
+4) Edit the code
+
+Click app.py in VS Code and make changes.
+
+Save (Ctrl+S). Streamlit auto-reloads when you save.
+If it doesn’t, click the “Rerun” button in the app.
+
+5) Stop / restart the server (when needed)
+
+In the terminal: Ctrl + C to stop Streamlit.
+
+Start it again with:
+
+streamlit run app.py
+
+6) Typical “sit down to work” routine (quick version)
+
+Open VS Code → folder streamlit_app
+
+Terminal → .\venv\Scripts\Activate
+
+streamlit run app.py
+
+Edit → Save → Check browser → Repeat
+
+Ctrl+C to stop when done
+
+Common gotchas (and quick fixes)
+
+No (venv) in terminal? Activate it: .\venv\Scripts\Activate
+
+App won’t open / port in use? Stop previous server (Ctrl+C), then run again.
+
+Changes not showing? Save file (Ctrl+S) or click Rerun in the app.
+
+Module not found (e.g., pandas, plotly)? Install inside venv:
+
+python -m pip install pandas plotly
