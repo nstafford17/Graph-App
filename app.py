@@ -487,9 +487,61 @@ if uploaded is not None:
         st.subheader("Averages")
         st.dataframe(avg_df)
 
-        # PDF download
-        st.subheader("Export")
-        if st.button("Build PDF report"):
+
+    # --- Totals by selected product (bar chart) ---
+st.subheader("Total Units Sold by Selected Products")
+
+if patterns:
+    # Use the same selection/date filter logic as the line charts
+    current_selection = set(patterns)
+
+    rows = []
+    for pat in patterns:
+        mask = get_mask_for_pattern(df_filtered, pat, current_selection)
+        total_units = float(df_filtered.loc[mask, "Quantity To Ship"].sum())
+
+        # make labels consistent with your other displays
+        nice_name = pat
+        kl = pat.lower()
+        if kl in {"short handle", "handle short"}:
+            nice_name = "Short Handle Terminators"
+        elif kl in {"long handle", "handle long"}:
+            nice_name = "Long Handle Terminators"
+        elif kl in {"short gimbal", "gimbal short"}:
+            nice_name = "Short Gimbal Epics"
+        elif kl in {"long gimbal", "gimbal long"}:
+            nice_name = "Long Gimbal Epics"
+
+        rows.append({"Product": nice_name, "Total Units": total_units})
+
+    bar_df = pd.DataFrame(rows).sort_values("Total Units", ascending=False)
+
+    if bar_df["Total Units"].sum() == 0:
+        st.info("No shipped quantity found for the current selections and date range.")
+    else:
+        fig, ax = plt.subplots(figsize=(10, 4))
+        ax.bar(bar_df["Product"], bar_df["Total Units"])
+        ax.set_ylabel("Total Units Shipped")
+        ax.set_title("Totals for Selected Products (Date Filter Applied)")
+        ax.set_xticklabels(bar_df["Product"], rotation=30, ha="right")
+        # add value labels on bars
+        for i, v in enumerate(bar_df["Total Units"].values):
+            ax.text(i, v, f"{v:.0f}", ha="center", va="bottom")
+        st.pyplot(fig)
+        plt.close(fig)
+
+        # Optional: show the table too
+        with st.expander("Show totals table"):
+            st.dataframe(bar_df.reset_index(drop=True))
+else:
+    st.info("Select at least one product above to see the totals bar chart.")
+
+
+
+
+    # PDF download
+    st.subheader("Export")
+    if st.button("Build PDF report"):
             pdf_bytes = build_pdf(
                 df_filtered, patterns, period_code, last_n_months, period_label, end_date, set(patterns)
             )
@@ -499,5 +551,5 @@ if uploaded is not None:
                 file_name="Shipment_Report.pdf",
                 mime="application/pdf"
             )
-else:
-    st.info("Upload a CSV to get started. Expected columns: 'Ship Date', 'Part Number', 'Quantity To Ship'.")
+    else:
+        st.info("Upload a CSV to get started. Expected columns: 'Ship Date', 'Part Number', 'Quantity To Ship'.")
