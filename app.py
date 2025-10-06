@@ -50,7 +50,9 @@ with st.sidebar:
     }
     period_code = PERIOD_TO_FREQ[period_label]
 
-    last_n_months = st.number_input("Window for Table of Averages (months)", min_value=1, max_value=120, value=6)
+    last_n_months = st.number_input(
+        "Window for Table of Averages (months)", min_value=1, max_value=120, value=6
+    )
     show_total_series = st.checkbox("Show Combined Total Series", value=True)
 
     st.markdown("---")
@@ -58,10 +60,10 @@ with st.sidebar:
 
     # 🔹 Hard-coded product substrings (edit these lists as needed)
     productfamilies = ["Butts", "Tops", "Guides", "Gaffs"]
-    individualproducts = ["Terminator", "Epic", "T-10X", "(EX)", "(XP)", "(ER)", "(XAT)", "(AT)", "(TT)", "Aussie"]
+    individualproducts = ["Terminator", "Epic", "T-10X", "X-CALIBER (XC)", " EXCEL (EX)", "(XP)", "(ER)", "(XAT)", "(AT)", "(TT)", "Aussie"]
     colors = ["Black", "Silver", "Gold", "Blue", "Custom"]
-    termhandlen = ["Short", "Long"]
-    gimballen = ["Short", "Long"]
+    termhandlen = ["Short Handle", "Long Handle"]   # store explicit labels
+    gimballen  = ["Short Gimbal", "Long Gimbal"]    # store explicit labels
 
     # --- Product Families ---
     st.subheader("Product Families")
@@ -87,17 +89,16 @@ with st.sidebar:
     # --- Terminator Handle Length ---
     st.subheader("Terminator Handle Length")
     selected_term_len = []
-    for term in termhandlen:
-        # label is "Short Handle" / "Long Handle", but we only store "Short"/"Long"
-        if st.checkbox(f"{term} Handle", key=f"term_{term}"):
-            selected_term_len.append(term)
+    for label in termhandlen:  # labels are "Short Handle", "Long Handle"
+        if st.checkbox(label, key=f"term_{label}"):
+            selected_term_len.append(label)
 
     # --- Gimbal Length ---
-    st.subheader("Gimbal Length")
+    st.subheader("Gimbal Length (Epic only)")
     selected_gimbal_len = []
-    for gimbal in gimballen:
-        if st.checkbox(f"{gimbal} Gimbal", key=f"gim_{gimbal}"):
-            selected_gimbal_len.append(gimbal)
+    for label in gimballen:  # labels are "Short Gimbal", "Long Gimbal"
+        if st.checkbox(label, key=f"gim_{label}"):
+            selected_gimbal_len.append(label)
 
     # Combined list of patterns used for per-product charts
     patterns = (
@@ -134,14 +135,14 @@ with st.sidebar:
                 sel_col_total.append(color)
 
         st.text("Terminator Handle Length")
-        for term in termhandlen:
-            if st.checkbox(f"[Totals] Handle {term}", key=f"tot_term_{term}"):
-                sel_term_total.append(term)
+        for label in termhandlen:
+            if st.checkbox(f"[Totals] {label}", key=f"tot_term_{label}"):
+                sel_term_total.append(label)
 
-        st.text("Gimbal Length")
-        for gimbal in gimballen:
-            if st.checkbox(f"[Totals] Gimbal {gimbal}", key=f"tot_gim_{gimbal}"):
-                sel_gim_total.append(gimbal)
+        st.text("Gimbal Length (Epic only)")
+        for label in gimballen:
+            if st.checkbox(f"[Totals] {label}", key=f"tot_gim_{label}"):
+                sel_gim_total.append(label)
 
         total_patterns = sel_fam_total + sel_ind_total + sel_col_total + sel_term_total + sel_gim_total
 
@@ -153,7 +154,7 @@ uploaded = st.file_uploader("Upload CSV", type=["csv"])
 
 # ---------- Helpers ----------
 
-# === Custom include/exclude logic for families + individual products + handle length ===
+# === Custom include/exclude logic for families + individual products + handle/gimbal ===
 FAMILY_INCLUDES = {
     "tops":   ["XAT", "AUSSIE", "AT", "TT"],
     "guides": ["XC", "XP", "ER", "ES"],
@@ -182,7 +183,8 @@ def _exclude_match(s: pd.Series) -> pd.Series:
 def get_mask_for_pattern(df: pd.DataFrame, pat: str, selected_labels: set[str]) -> pd.Series:
     """
     Returns a boolean mask for checkbox label `pat`.
-    NOTE: Short/Long handle filters NO LONGER depend on Terminator/Butts being selected.
+    - Short/Long Handle: TRMTR + SHT/LNG (no dependency)
+    - Short/Long Gimbal: EPIC + (NOT LNG / LNG)
     """
     col = "Part Number"
     s = df[col].astype(str)
@@ -200,44 +202,102 @@ def get_mask_for_pattern(df: pd.DataFrame, pat: str, selected_labels: set[str]) 
         m_exc = _exclude_match(s)
         return m_inc & ~m_exc
 
-    # Handle length (NO dependency anymore). Only TRMTR entries, then SHT/LNG split.
-    if key in {"handle short", "short"}:
+    # Handle length (no dependency). Only TRMTR entries, then SHT/LNG split.
+    if key in {"short handle", "handle short"}:
         base = _token_match(s, ["TRMTR"])
-        spec = s.str_contains(r"SHT", case=False, na=False, regex=True) if hasattr(s, "str_contains") else s.str.contains(r"SHT", case=False, na=False, regex=True)
+        spec = s.str.contains(r"SHT", case=False, na=False, regex=True)
+        m_exc = _exclude_match(s)
+        return base & spec & ~m_exc
+    if key in {"long handle", "handle long"}:
+        base = _token_match(s, ["TRMTR"])
+        spec = s.str.contains(r"LNG", case=False, na=False, regex=True)
         m_exc = _exclude_match(s)
         return base & spec & ~m_exc
 
-    if key in {"handle long", "long"}:
-        base = _token_match(s, ["TRMTR"])
-        spec = s.str_contains(r"LNG", case=False, na=False, regex=True) if hasattr(s, "str_contains") else s.str.contains(r"LNG", case=False, na=False, regex=True)
+    # Gimbal length (Epic only)
+    # Long Gimbal: EPIC and LNG
+    if key in {"long gimbal", "gimbal long"}:
+        base = _token_match(s, ["EPIC"])
+        lng  = s.str.contains(r"LNG", case=False, na=False, regex=True)
         m_exc = _exclude_match(s)
-        return base & spec & ~m_exc
+        return base & lng & ~m_exc
+
+    # Short Gimbal: EPIC and NOT LNG
+    if key in {"short gimbal", "gimbal short"}:
+        base = _token_match(s, ["EPIC"])
+        lng  = s.str.contains(r"LNG", case=False, na=False, regex=True)
+        m_exc = _exclude_match(s)
+        return base & (~lng) & ~m_exc
 
     # Fallback: generic case-insensitive substring of the label itself
     return s.str.contains(re.escape(pat), case=False, na=False, regex=True)
 
 def normalize(df: pd.DataFrame) -> pd.DataFrame:
-    # Expect columns: Ship Date, Part Number, Quantity To Ship
+    """
+    Normalize incoming CSV columns to canonical names used by the app:
+      - 'Ship Date'  (accepts 'Ship Date' OR 'Closed Date')
+      - 'Quantity To Ship' (accepts 'Quantity To Ship' OR 'Qty Due')
+      - 'Part Number' (must exist; keeps your existing flexible renaming)
+    """
     df = df.copy()
+
+    # Helper: find a column by any of several aliases (case/space-insensitive)
+    def find_col(aliases: list[str]) -> str | None:
+        # map of normalized -> original
+        norm_map = {re.sub(r"\s+", "", c).lower(): c for c in df.columns}
+        for alias in aliases:
+            key = re.sub(r"\s+", "", alias).lower()
+            if key in norm_map:
+                return norm_map[key]
+        # also try loose contains match if exact normalized name not found
+        for alias in aliases:
+            alias_key = re.sub(r"\s+", "", alias).lower()
+            for k, orig in norm_map.items():
+                if alias_key == k or alias_key in k:
+                    return orig
+        return None
+
+    # Resolve date column (Ship Date OR Closed Date) -> 'Ship Date'
+    date_src = find_col(["Ship Date", "Closed Date"])
+    if not date_src:
+        raise ValueError("Missing a date column. Expected 'Ship Date' or 'Closed Date'.")
+    if date_src != "Ship Date":
+        df.rename(columns={date_src: "Ship Date"}, inplace=True)
+
+    # Resolve quantity column (Quantity To Ship OR Qty Due) -> 'Quantity To Ship'
+    qty_src = find_col(["Quantity To Ship", "Qty Due"])
+    if not qty_src:
+        raise ValueError("Missing a quantity column. Expected 'Quantity To Ship' or 'Qty Due'.")
+    if qty_src != "Quantity To Ship":
+        df.rename(columns={qty_src: "Quantity To Ship"}, inplace=True)
+
+    # Resolve part number using your existing flexible logic
     col_map = {c.lower(): c for c in df.columns}
-    for target in ["Ship Date", "Part Number", "Quantity To Ship"]:
-        match = next((orig for low, orig in col_map.items()
-                      if low.replace(" ", "") == target.lower().replace(" ", "")), None)
-        if match and match != target:
-            df.rename(columns={match: target}, inplace=True)
+    def canonize(name: str) -> str:
+        return name.lower().replace(" ", "")
+    # Try to find a column equivalent to "Part Number"
+    if "Part Number" not in df.columns:
+        match = next(
+            (
+                orig for low, orig in col_map.items()
+                if canonize(low) == canonize("Part Number")
+            ),
+            None
+        )
+        if match:
+            df.rename(columns={match: "Part Number"}, inplace=True)
 
-    if "Ship Date" not in df.columns:
-        raise ValueError("Missing 'Ship Date' column.")
-    df["Ship Date"] = pd.to_datetime(df["Ship Date"], errors="coerce")
-    df = df.dropna(subset=["Ship Date"])
-
-    if "Quantity To Ship" not in df.columns:
-        raise ValueError("Missing 'Quantity To Ship' column.")
-    df["Quantity To Ship"] = pd.to_numeric(df["Quantity To Ship"], errors="coerce").fillna(0)
-
+    # Final presence checks
     if "Part Number" not in df.columns:
         raise ValueError("Missing 'Part Number' column.")
+
+    # Parse/clean types
+    df["Ship Date"] = pd.to_datetime(df["Ship Date"], errors="coerce")
+    df = df.dropna(subset=["Ship Date"])
+    df["Quantity To Ship"] = pd.to_numeric(df["Quantity To Ship"], errors="coerce").fillna(0)
+
     return df
+
 
 def period_sum(df_filtered: pd.DataFrame, freq_code: str) -> pd.Series:
     return (
@@ -270,10 +330,14 @@ def plot_series(ax, series: pd.Series, title: str, ylabel: str, show_trend=True,
 
 def title_for_pattern(pat: str, period_label: str) -> str:
     kl = pat.lower()
-    if kl in {"handle short", "short"}:
+    if kl in {"short handle", "handle short"}:
         return f"Short Handle Terminators — {period_label} shipped"
-    if kl in {"handle long", "long"}:
+    if kl in {"long handle", "handle long"}:
         return f"Long Handle Terminators — {period_label} shipped"
+    if kl in {"short gimbal", "gimbal short"}:
+        return f"Short Gimbal Epics — {period_label} shipped"
+    if kl in {"long gimbal", "gimbal long"}:
+        return f"Long Gimbal Epics — {period_label} shipped"
     return f"{pat} — {period_label} shipped"
 
 def build_pdf(df: pd.DataFrame, patterns: list[str], freq_code: str,
@@ -379,6 +443,7 @@ if uploaded is not None:
             fig, ax = plt.subplots(figsize=(10, 4))
             plot_series(ax, s, title_for_pattern(pat, period_label), "Quantity Shipped")
             st.pyplot(fig)
+            plt.close(fig)
 
         # Combined total series (using either same or separate selections)
         if show_total_series:
@@ -394,6 +459,7 @@ if uploaded is not None:
             fig, ax = plt.subplots(figsize=(10, 4))
             plot_series(ax, total_s, f"All selected — {period_label} shipped", "Quantity Shipped")
             st.pyplot(fig)
+            plt.close(fig)
 
         # Averages table (last N months from end_date)
         cutoff = pd.Timestamp(end_date) - pd.DateOffset(months=last_n_months)
@@ -402,10 +468,19 @@ if uploaded is not None:
             subset = df_filtered[get_mask_for_pattern(df_filtered, pat, current_selection)]
             s = period_sum(subset, period_code)
             last = s[s.index >= cutoff]
+            nice_name = pat
+            kl = pat.lower()
+            if kl in {"short handle", "handle short"}:
+                nice_name = "Short Handle Terminators"
+            elif kl in {"long handle", "handle long"}:
+                nice_name = "Long Handle Terminators"
+            elif kl in {"short gimbal", "gimbal short"}:
+                nice_name = "Short Gimbal Epics"
+            elif kl in {"long gimbal", "gimbal long"}:
+                nice_name = "Long Gimbal Epics"
+
             avgs.append({
-                "Product": pat if pat.lower() not in {"short", "long"} else (
-                    "Short Handle Terminators" if pat.lower() == "short" else "Long Handle Terminators"
-                ),
+                "Product": nice_name,
                 f"Avg per {period_label} (Last {last_n_months} mo)": float(last.mean()) if not last.empty else 0.0
             })
         avg_df = pd.DataFrame(avgs)
