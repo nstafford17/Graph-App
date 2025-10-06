@@ -164,8 +164,8 @@ INDIVIDUAL_INCLUDES = {
     "epic":       ["EPIC"],
     "t-10x":      ["T-10X"],
 }
-# Exclusions always win
-EXCLUDE_PRIORITY = ["AC", "CART", "SET", "SFC", "SA"]
+# Exclusions always win (kept as provided)
+EXCLUDE_PRIORITY = ["AC ", "CART ", " SET", "SFC ", "SA "]
 
 def _token_match(s: pd.Series, tokens: list[str]) -> pd.Series:
     if not tokens:
@@ -181,13 +181,12 @@ def _exclude_match(s: pd.Series) -> pd.Series:
 
 def get_mask_for_pattern(df: pd.DataFrame, pat: str, selected_labels: set[str]) -> pd.Series:
     """
-    Returns a boolean mask for checkbox label `pat`, using `selected_labels`
-    to enforce dependencies (e.g., handle length only active if Terminator or Butts selected).
+    Returns a boolean mask for checkbox label `pat`.
+    NOTE: Short/Long handle filters NO LONGER depend on Terminator/Butts being selected.
     """
     col = "Part Number"
     s = df[col].astype(str)
     key = pat.lower()
-    selected_lc = {x.lower() for x in selected_labels}
 
     # Families (custom includes + exclusions)
     if key in FAMILY_INCLUDES:
@@ -201,21 +200,16 @@ def get_mask_for_pattern(df: pd.DataFrame, pat: str, selected_labels: set[str]) 
         m_exc = _exclude_match(s)
         return m_inc & ~m_exc
 
-    # Handle length (dependency: Terminator OR Butts selected)
-    # Accept "handle short/long" OR just "short"/"long"
-    if key in {"handle short", "handle long", "short", "long"}:
-        depends_on = {"terminator", "butts"}
-        if selected_lc.isdisjoint(depends_on):
-            # Neither Terminator nor Butts selected → no effect
-            return pd.Series(False, index=s.index)
-
-        # Only consider TRMTR entries, then split by SHT/LNG
+    # Handle length (NO dependency anymore). Only TRMTR entries, then SHT/LNG split.
+    if key in {"handle short", "short"}:
         base = _token_match(s, ["TRMTR"])
-        if key in {"handle short", "short"}:
-            spec = s.str.contains(r"SHT", case=False, na=False, regex=True)
-        else:  # long
-            spec = s.str.contains(r"LNG", case=False, na=False, regex=True)
+        spec = s.str_contains(r"SHT", case=False, na=False, regex=True) if hasattr(s, "str_contains") else s.str.contains(r"SHT", case=False, na=False, regex=True)
+        m_exc = _exclude_match(s)
+        return base & spec & ~m_exc
 
+    if key in {"handle long", "long"}:
+        base = _token_match(s, ["TRMTR"])
+        spec = s.str_contains(r"LNG", case=False, na=False, regex=True) if hasattr(s, "str_contains") else s.str.contains(r"LNG", case=False, na=False, regex=True)
         m_exc = _exclude_match(s)
         return base & spec & ~m_exc
 
@@ -274,6 +268,14 @@ def plot_series(ax, series: pd.Series, title: str, ylabel: str, show_trend=True,
     ax.grid(True)
     ax.legend()
 
+def title_for_pattern(pat: str, period_label: str) -> str:
+    kl = pat.lower()
+    if kl in {"handle short", "short"}:
+        return f"Short Handle Terminators — {period_label} shipped"
+    if kl in {"handle long", "long"}:
+        return f"Long Handle Terminators — {period_label} shipped"
+    return f"{pat} — {period_label} shipped"
+
 def build_pdf(df: pd.DataFrame, patterns: list[str], freq_code: str,
               last_n_months: int, period_label: str, end_date, selected_labels: set[str]) -> bytes:
     # Prepare series per product using the SAME logic as the app
@@ -314,7 +316,7 @@ def build_pdf(df: pd.DataFrame, patterns: list[str], freq_code: str,
         # Product charts
         for pat, s in series_by_product.items():
             fig, ax = plt.subplots(figsize=(11, 6))
-            plot_series(ax, s, f"{period_label} {pat} Shipped", "Quantity Shipped")
+            plot_series(ax, s, title_for_pattern(pat, period_label), "Quantity Shipped")
             fig.tight_layout()
             pdf.savefig(fig); plt.close(fig)
 
@@ -367,7 +369,7 @@ if uploaded is not None:
 
         st.subheader(f"{period_label} charts")
 
-        # Compose a lowercase set of currently selected labels for dependency logic
+        # Compose a set of currently selected labels (kept for API consistency)
         current_selection = set(patterns)
 
         # Individual product charts
@@ -375,7 +377,7 @@ if uploaded is not None:
             subset = df_filtered[get_mask_for_pattern(df_filtered, pat, current_selection)]
             s = period_sum(subset, period_code)
             fig, ax = plt.subplots(figsize=(10, 4))
-            plot_series(ax, s, f"{pat} — {period_label} shipped", "Quantity Shipped")
+            plot_series(ax, s, title_for_pattern(pat, period_label), "Quantity Shipped")
             st.pyplot(fig)
 
         # Combined total series (using either same or separate selections)
@@ -401,7 +403,9 @@ if uploaded is not None:
             s = period_sum(subset, period_code)
             last = s[s.index >= cutoff]
             avgs.append({
-                "Product": pat,
+                "Product": pat if pat.lower() not in {"short", "long"} else (
+                    "Short Handle Terminators" if pat.lower() == "short" else "Long Handle Terminators"
+                ),
                 f"Avg per {period_label} (Last {last_n_months} mo)": float(last.mean()) if not last.empty else 0.0
             })
         avg_df = pd.DataFrame(avgs)
